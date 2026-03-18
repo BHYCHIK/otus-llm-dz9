@@ -14,6 +14,7 @@ from PIL import Image, ImageFile
 from transformers import CLIPProcessor, CLIPModel
 
 import torch.nn.functional as F
+import numpy as np
 
 USER_AGENT = get_datasets_user_agent()
 DATASET_SIZE = 60000
@@ -22,6 +23,8 @@ ImageFile.LOAD_TRUNCATED_IMAGES = False
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
 processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32", use_fast=True)
+model.eval()
+torch.set_grad_enabled(False)
 
 def fetch_single_image(image_url, timeout=5, retries=1):
     last_exc = None
@@ -83,23 +86,17 @@ def download_dataset():
     dset = dset.filter(lambda x: x["image_ok"])
     return dset
 
-def calculate_embeddings(row):
-    image_inputs = processor(images=row["image"], return_tensors="pt").to(device)
+def calculate_embeddings(batch):
+    images = batch["image"]
 
-    #text = ["Mounts", "Bus station", "Woman in skirt"]
-
-    #text_inputs = processor(text=text, return_tensors="pt", padding=True).to(device)
+    image_inputs = processor(images=images, return_tensors="pt").to(device)
 
     with torch.no_grad():
         image_embeddings = model.get_image_features(**image_inputs)
-        image_embeddings = F.normalize(image_embeddings, dim=-1)[0]
-        print(image_embeddings)
-        #text_embeddings = model.get_text_features(**text_inputs)
-        #text_embeddings = F.normalize(text_embeddings, dim=-1)
-    return {"image_embeddings": image_embeddings}
-
-    #sim = F.cosine_similarity(text_embeddings, image_embeddings, dim=1)
-    #print(sim)
+        image_embeddings = F.normalize(image_embeddings, dim=-1)
+    image_embeddings = image_embeddings.detach().cpu().numpy().astype(np.float32)
+    batch["image_embeddings"] = [v.tolist() for v in image_embeddings]
+    return batch
 
 
 def main():
@@ -113,11 +110,12 @@ def main():
     print("Dset loaded")
     print(dset)
 
-    dset = dset.select(range(5))
     if os.path.exists("./data_with_embeddings"):
         dset = datasets.load_from_disk("./data_with_embeddings")
     else:
-        dset = dset.map(calculate_embeddings)
+        print("CALCULATING EMBEDDINGS")
+        dset = dset.map(calculate_embeddings, batched=True, batch_size=64)
+        dset.save_to_disk("./data_with_embeddings")
     print(dset)
     print(dset[4]['image_embeddings'])
 
