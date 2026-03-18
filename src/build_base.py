@@ -16,6 +16,8 @@ from transformers import CLIPProcessor, CLIPModel
 import torch.nn.functional as F
 import numpy as np
 
+from rag.image_index import VectorStore
+
 USER_AGENT = get_datasets_user_agent()
 DATASET_SIZE = 60000
 ImageFile.LOAD_TRUNCATED_IMAGES = False
@@ -25,6 +27,8 @@ model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
 processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32", use_fast=True)
 model.eval()
 torch.set_grad_enabled(False)
+
+vector_store = VectorStore()
 
 def fetch_single_image(image_url, timeout=5, retries=1):
     last_exc = None
@@ -98,6 +102,10 @@ def calculate_embeddings(batch):
     batch["image_embeddings"] = [v.tolist() for v in image_embeddings]
     return batch
 
+def store_to_vector_storage(batch):
+    embeddings = batch["image_embeddings"]
+    image_urls = batch["image_url"]
+    vector_store.save_images(embeddings, image_urls)
 
 def main():
     if os.path.exists("./data"):
@@ -116,8 +124,19 @@ def main():
         print("CALCULATING EMBEDDINGS")
         dset = dset.map(calculate_embeddings, batched=True, batch_size=64)
         dset.save_to_disk("./data_with_embeddings")
-    print(dset)
-    print(dset[4]['image_embeddings'])
+
+    if not os.path.exists("./chromadb"):
+        dset.map(store_to_vector_storage, batched=True, batch_size=1024)
+
+    #text = ["Pair dancing Real photos."]
+    #text = ["Bus stop"]
+    #text_inputs = processor(text=text, return_tensors="pt", padding=True).to(device)
+    #text_embeddings = model.get_text_features(**text_inputs)
+    #text_embeddings = text_embeddings.detach().cpu().numpy().astype(np.float32)[0]
+    #print(text_embeddings)
+
+    #res = vector_store.get_image(text_embeddings)
+    #print(res)
 
 if __name__ == "__main__":
     main()
