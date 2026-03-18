@@ -20,7 +20,7 @@ class VectorStore():
     def save_images(self, embeddings, image_urls):
         self._collection.add(image_urls, embeddings)
 
-    def get_image(self, embedding):
+    def get_image(self, embedding, top_n=5):
         image = self._collection.query(query_embeddings=embedding,
-                                       n_results=5)
+                                       n_results=top_n)
         return image

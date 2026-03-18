@@ -28,7 +28,7 @@ processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32", use_fa
 model.eval()
 torch.set_grad_enabled(False)
 
-vector_store = VectorStore()
+vector_store = None
 
 def fetch_single_image(image_url, timeout=5, retries=1):
     last_exc = None
@@ -108,6 +108,8 @@ def store_to_vector_storage(batch):
     vector_store.save_images(embeddings, image_urls)
 
 def main():
+    global vector_store
+
     if os.path.exists("./data"):
         dset = datasets.load_from_disk("./data")
         print("Loaded dataset from disk")
@@ -122,21 +124,26 @@ def main():
         dset = datasets.load_from_disk("./data_with_embeddings")
     else:
         print("CALCULATING EMBEDDINGS")
-        dset = dset.map(calculate_embeddings, batched=True, batch_size=64)
+        dset = dset.map(calculate_embeddings, batched=True, batch_size=64, load_from_cache_file=False)
         dset.save_to_disk("./data_with_embeddings")
 
     if not os.path.exists("./chromadb"):
-        dset.map(store_to_vector_storage, batched=True, batch_size=1024)
+        print("BUILDING CHROMADB")
+        print(dset)
+        vector_store = VectorStore()
+        dset.map(store_to_vector_storage, batched=True, batch_size=1024, load_from_cache_file=False)
+    else:
+        print("CHROMADB ALREADY EXISTS")
+        vector_store = VectorStore()
 
-    #text = ["Pair dancing Real photos."]
-    #text = ["Bus stop"]
-    #text_inputs = processor(text=text, return_tensors="pt", padding=True).to(device)
-    #text_embeddings = model.get_text_features(**text_inputs)
-    #text_embeddings = text_embeddings.detach().cpu().numpy().astype(np.float32)[0]
-    #print(text_embeddings)
+    text = ["Pair dancing Real photos."]
+    text = ["Bus stop"]
+    text_inputs = processor(text=text, return_tensors="pt", padding=True).to(device)
+    text_embeddings = model.get_text_features(**text_inputs)
+    text_embeddings = text_embeddings.detach().cpu().numpy().astype(np.float32)[0]
 
-    #res = vector_store.get_image(text_embeddings)
-    #print(res)
+    res = vector_store.get_image(text_embeddings)
+    print(res)
 
 if __name__ == "__main__":
     main()
