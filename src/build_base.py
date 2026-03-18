@@ -5,15 +5,23 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
 import datasets
+import torch
 from datasets import load_dataset
 from datasets.utils.file_utils import get_datasets_user_agent
 
 from PIL import Image, ImageFile
 
+from transformers import CLIPProcessor, CLIPModel
+
+import torch.nn.functional as F
+
 USER_AGENT = get_datasets_user_agent()
 DATASET_SIZE = 60000
 ImageFile.LOAD_TRUNCATED_IMAGES = False
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
+processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32", use_fast=True)
 
 def fetch_single_image(image_url, timeout=5, retries=1):
     last_exc = None
@@ -75,6 +83,22 @@ def download_dataset():
     dset = dset.filter(lambda x: x["image_ok"])
     return dset
 
+def calculate_embeddings(row):
+    image_inputs = processor(images=row["image"], return_tensors="pt").to(device)
+
+    text = ["Mounts", "Bus station", "Woman in skirt"]
+
+    text_inputs = processor(text=text, return_tensors="pt", padding=True).to(device)
+
+    with torch.no_grad():
+        image_embeddings = model.get_image_features(**image_inputs)
+        image_embeddings = F.normalize(image_embeddings, dim=-1)
+        text_embeddings = model.get_text_features(**text_inputs)
+        text_embeddings = F.normalize(text_embeddings, dim=-1)
+
+    sim = F.cosine_similarity(text_embeddings, image_embeddings, dim=1)
+    print(sim)
+
 
 def main():
     if os.path.exists("./data"):
@@ -87,10 +111,17 @@ def main():
     print("Dset loaded")
     print(dset)
 
-    dset = dset.select(range(1))
+    dset = dset.select(range(2))
     dset[0]['image'].save('img.png')
     print(dset[0]['caption'])
+    calculate_embeddings(dset[0])
+
+    dset[1]['image'].save('img2.png')
+    print(dset[1]['caption'])
+    calculate_embeddings(dset[1])
+    print("Done")
 
 
 if __name__ == "__main__":
     main()
+    print("Done totally")
