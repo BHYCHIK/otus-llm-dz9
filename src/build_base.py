@@ -5,29 +5,19 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 
 import datasets
-import torch
 from datasets import load_dataset
 from datasets.utils.file_utils import get_datasets_user_agent
 
 from PIL import Image, ImageFile
 
-from transformers import CLIPProcessor, CLIPModel
-
-import torch.nn.functional as F
-import numpy as np
-
 from rag.image_index import VectorStore
+from rag.embedder import Embedder
 
 USER_AGENT = get_datasets_user_agent()
 DATASET_SIZE = 60000
 ImageFile.LOAD_TRUNCATED_IMAGES = False
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
-processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32", use_fast=True)
-model.eval()
-torch.set_grad_enabled(False)
-
+embedder = Embedder()
 vector_store = None
 
 def fetch_single_image(image_url, timeout=5, retries=1):
@@ -92,14 +82,7 @@ def download_dataset():
 
 def calculate_embeddings(batch):
     images = batch["image"]
-
-    image_inputs = processor(images=images, return_tensors="pt").to(device)
-
-    with torch.no_grad():
-        image_embeddings = model.get_image_features(**image_inputs)
-        image_embeddings = F.normalize(image_embeddings, dim=-1)
-    image_embeddings = image_embeddings.detach().cpu().numpy().astype(np.float32)
-    batch["image_embeddings"] = [v.tolist() for v in image_embeddings]
+    batch["image_embeddings"]  = embedder.embed_images(images)
     return batch
 
 def store_to_vector_storage(batch):
@@ -136,14 +119,6 @@ def main():
         print("CHROMADB ALREADY EXISTS")
         vector_store = VectorStore()
 
-    text = ["Pair dancing Real photos."]
-    text = ["Bus stop"]
-    text_inputs = processor(text=text, return_tensors="pt", padding=True).to(device)
-    text_embeddings = model.get_text_features(**text_inputs)
-    text_embeddings = text_embeddings.detach().cpu().numpy().astype(np.float32)[0]
-
-    res = vector_store.get_image(text_embeddings)
-    print(res)
 
 if __name__ == "__main__":
     main()
