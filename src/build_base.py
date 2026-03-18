@@ -86,18 +86,20 @@ def download_dataset():
 def calculate_embeddings(row):
     image_inputs = processor(images=row["image"], return_tensors="pt").to(device)
 
-    text = ["Mounts", "Bus station", "Woman in skirt"]
+    #text = ["Mounts", "Bus station", "Woman in skirt"]
 
-    text_inputs = processor(text=text, return_tensors="pt", padding=True).to(device)
+    #text_inputs = processor(text=text, return_tensors="pt", padding=True).to(device)
 
     with torch.no_grad():
         image_embeddings = model.get_image_features(**image_inputs)
-        image_embeddings = F.normalize(image_embeddings, dim=-1)
-        text_embeddings = model.get_text_features(**text_inputs)
-        text_embeddings = F.normalize(text_embeddings, dim=-1)
+        image_embeddings = F.normalize(image_embeddings, dim=-1)[0]
+        print(image_embeddings)
+        #text_embeddings = model.get_text_features(**text_inputs)
+        #text_embeddings = F.normalize(text_embeddings, dim=-1)
+    return {"image_embeddings": image_embeddings}
 
-    sim = F.cosine_similarity(text_embeddings, image_embeddings, dim=1)
-    print(sim)
+    #sim = F.cosine_similarity(text_embeddings, image_embeddings, dim=1)
+    #print(sim)
 
 
 def main():
@@ -111,16 +113,13 @@ def main():
     print("Dset loaded")
     print(dset)
 
-    dset = dset.select(range(2))
-    dset[0]['image'].save('img.png')
-    print(dset[0]['caption'])
-    calculate_embeddings(dset[0])
-
-    dset[1]['image'].save('img2.png')
-    print(dset[1]['caption'])
-    calculate_embeddings(dset[1])
-    print("Done")
-
+    dset = dset.select(range(5))
+    if os.path.exists("./data_with_embeddings"):
+        dset = datasets.load_from_disk("./data_with_embeddings")
+    else:
+        dset = dset.map(calculate_embeddings)
+    print(dset)
+    print(dset[4]['image_embeddings'])
 
 if __name__ == "__main__":
     main()
