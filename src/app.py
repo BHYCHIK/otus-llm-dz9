@@ -1,18 +1,11 @@
 from fastapi import FastAPI, Query
-import torch
 from .rag.image_index import VectorStore
-from transformers import CLIPProcessor, CLIPModel
-import numpy as np
+from .rag.embedder import Embedder
 
 app = FastAPI()
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32").to(device)
-processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32", use_fast=True)
-model.eval()
-torch.set_grad_enabled(False)
-
 vector_store = VectorStore()
+embedder = Embedder()
 @app.get("/")
 def root():
     return {"status": "ok"}
@@ -23,10 +16,7 @@ def find_images(
         top_n: int = Query(5, ge=1, le=50)
                 ):
 
-    text_inputs = processor(text=[image_description], return_tensors="pt", padding=True).to(device)
-    text_embeddings = model.get_text_features(**text_inputs)
-    text_embeddings = text_embeddings.detach().cpu().numpy().astype(np.float32)[0]
-
+    text_embeddings = embedder.embed_text(image_description)
     res = vector_store.get_image(text_embeddings, top_n=top_n)
     print(res)
 
